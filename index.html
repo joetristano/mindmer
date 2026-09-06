@@ -1,358 +1,1213 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>MindMer — Local Maps (Static)</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin: 0; display:flex; height:100vh; }
-    .sidebar { width:320px; border-right:1px solid #ddd; padding:16px; box-sizing:border-box; overflow:auto; background:#f9f9f9; }
-    .main { flex:1; padding:16px; box-sizing:border-box; display:flex; flex-direction:column; }
-    .map-list { margin:8px 0; }
-    .map-item { display:flex; align-items:center; justify-content:space-between; padding:6px 4px; border-bottom:1px solid #eee; }
-    button { margin-left:8px; }
-    textarea { width:100%; height:60vh; font-family:monospace; font-size:13px; box-sizing:border-box; }
-    input[type="text"] { width:100%; box-sizing:border-box; padding:6px; }
-    .muted { color:#666; font-size:13px }
-    .controls { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
-    .small { font-size:13px; padding:6px 8px; }
-    .badge { font-size:12px; color:#555; background:#eee; padding:2px 6px; border-radius:6px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Mindwood — mind maps that grow</title>
+<meta name="theme-color" content="#22302A">
+<style>
+  :root{
+    --paper: #EEF1EA;
+    --paper-line: #DEE3D5;
+    --ink: #22302A;
+    --ink-soft: #5B695F;
+    --trunk: #4A3324;
+    --b1: #2F6F4E;
+    --b2: #C98A2C;
+    --b3: #7A4FA3;
+    --b4: #2E6E8E;
+    --b5: #B24C3C;
+    --card: #FBFAF6;
+    --danger: #B24C3C;
+    --focus: #2E6E8E;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    height:100%; margin:0; padding:0; overflow:hidden;
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    -webkit-tap-highlight-color: transparent;
+  }
+  body{
+    background-image:
+      linear-gradient(var(--paper-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  button{ font-family:inherit; }
+  #app{ position:fixed; inset:0; display:flex; flex-direction:column; }
+
+  /* ---------- Top bar ---------- */
+  header{
+    display:flex; align-items:center; gap:10px;
+    padding: 10px 14px; background: rgba(251,250,246,0.92);
+    border-bottom: 1px solid var(--paper-line);
+    backdrop-filter: blur(6px);
+    z-index: 30;
+    flex-wrap: nowrap;
+  }
+  .brand{
+    font-family:var(--serif); font-style:italic; font-size:20px;
+    color:var(--trunk); white-space:nowrap; margin-right:4px;
+    user-select:none;
+  }
+  .brand b{ font-style:normal; color:var(--b1); }
+  .toolbar{ display:flex; gap:6px; flex:1; overflow-x:auto; scrollbar-width:none; }
+  .toolbar::-webkit-scrollbar{ display:none; }
+  .tbtn{
+    display:flex; align-items:center; gap:6px; white-space:nowrap;
+    border:1px solid var(--paper-line); background:var(--card); color:var(--ink);
+    padding:8px 12px; border-radius:10px; font-size:13.5px; cursor:pointer;
+    transition: background .15s, border-color .15s, transform .1s;
+  }
+  .tbtn:hover{ border-color: var(--ink-soft); }
+  .tbtn:active{ transform: scale(0.96); }
+  .tbtn svg{ width:16px; height:16px; flex:none; }
+  .tbtn.primary{ background:var(--b1); border-color:var(--b1); color:#fff; }
+  .tbtn.danger{ color:var(--danger); }
+  .tbtn .lbl{ }
+  .spacer{ flex:1; }
+
+  /* ---------- Canvas ---------- */
+  #viewport{
+    position:relative; flex:1; overflow:hidden; touch-action:none;
+    cursor: grab;
+  }
+  #viewport.panning{ cursor: grabbing; }
+  #world{
+    position:absolute; left:0; top:0;
+    width:8000px; height:8000px;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  svg#edges{ position:absolute; left:0; top:0; width:8000px; height:8000px; overflow:visible; pointer-events:none; }
+  svg#edges path{ fill:none; stroke-width:2.5; opacity:.85; stroke-linecap:round; }
+
+  .node{
+    position:absolute; transform:translate(-50%,-50%);
+    min-width:36px; max-width:240px;
+    padding:9px 16px;
+    font-size:14px; line-height:1.3;
+    color:#fff; background:var(--b1);
+    border-radius:10px;
+    box-shadow: 0 1px 2px rgba(34,48,42,0.18);
+    cursor:pointer; user-select:none;
+    border: 2px solid transparent;
+    outline:none;
+    word-break: break-word;
+    text-align:center;
+  }
+  .node.selected{ box-shadow: 0 0 0 3px rgba(34,48,42,0.18), 0 2px 6px rgba(34,48,42,0.25); }
+  .node[contenteditable="true"]{ cursor:text; user-select:text; box-shadow:0 0 0 3px rgba(46,110,142,0.35); }
+  .node.dragging{ opacity:.92; }
+
+  .node.depth-0{ font-family:var(--serif); font-style:italic; font-size:17px; background:var(--trunk); }
+  .node.shape-circle{ border-radius:50%; aspect-ratio:1; display:flex; align-items:center; justify-content:center; width:120px; height:120px; padding:8px; }
+  .node.shape-rounded{ border-radius:999px; }
+  .node.shape-square{ border-radius:6px; }
+  .node.shape-hexagon{ clip-path: polygon(12% 0%, 88% 0%, 100% 50%, 88% 100%, 12% 100%, 0% 50%); padding:12px 22px; }
+  .node.shape-cloud{ border-radius: 46% 54% 62% 38% / 55% 45% 55% 45%; }
+  .node.shape-default{ background:transparent; color:var(--ink); border-bottom:2px solid var(--ink-soft); border-radius:0; box-shadow:none; padding:4px 6px; }
+  .node.shape-default.selected{ box-shadow:none; border-bottom-color:var(--focus); }
+
+  /* mini contextual toolbar */
+  #node-toolbar{
+    position:fixed; display:none; gap:4px; z-index:40;
+    background:var(--card); border:1px solid var(--paper-line);
+    border-radius:12px; padding:5px; box-shadow: 0 6px 18px rgba(34,48,42,0.22);
+  }
+  #node-toolbar button{
+    width:36px; height:36px; border:none; background:transparent; border-radius:8px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--ink);
+  }
+  #node-toolbar button:hover{ background:var(--paper); }
+  #node-toolbar button svg{ width:18px; height:18px; }
+  #node-toolbar button.danger{ color:var(--danger); }
+
+  /* zoom controls */
+  .zoom-controls{
+    position:fixed; right:14px; bottom:14px; z-index:25;
+    display:flex; flex-direction:column; gap:6px;
+    background:var(--card); border:1px solid var(--paper-line);
+    border-radius:12px; padding:5px; box-shadow: 0 4px 12px rgba(34,48,42,0.15);
+  }
+  .zoom-controls button{
+    width:38px; height:38px; border:none; background:transparent; border-radius:8px;
+    font-size:18px; cursor:pointer; color:var(--ink);
+  }
+  .zoom-controls button:hover{ background:var(--paper); }
+  .zoom-controls hr{ border:none; border-top:1px solid var(--paper-line); margin:2px 4px; }
+
+  /* ---------- Maps menu (hamburger + drawer) ---------- */
+  .hamburger-btn{
+    display:flex; align-items:center; justify-content:center;
+    width:38px; height:38px; flex:none;
+    border:1px solid var(--paper-line); background:var(--card); color:var(--ink);
+    border-radius:10px; cursor:pointer;
+    transition: background .15s, border-color .15s, transform .1s;
+  }
+  .hamburger-btn:hover{ border-color: var(--ink-soft); }
+  .hamburger-btn:active{ transform: scale(0.96); }
+  .hamburger-btn svg{ width:18px; height:18px; }
+
+  #drawer-backdrop{
+    position:fixed; inset:0; background:rgba(34,48,42,0.35); z-index:90;
+    display:none;
+  }
+  #drawer-backdrop.show{ display:block; }
+
+  #maps-drawer{
+    position:fixed; top:0; left:0; bottom:0; width:290px; max-width:86vw;
+    background:var(--card); z-index:95;
+    box-shadow: 8px 0 28px rgba(34,48,42,0.28);
+    transform: translateX(-100%);
+    transition: transform .22s ease;
+    display:flex; flex-direction:column;
+  }
+  #maps-drawer.open{ transform: translateX(0); }
+  .drawer-head{
+    display:flex; align-items:center; padding:16px 16px 12px;
+    border-bottom:1px solid var(--paper-line);
+  }
+  .drawer-head h2{ font-family:var(--serif); font-style:italic; font-weight:normal; font-size:19px; margin:0; color:var(--trunk); }
+  .drawer-close{ margin-left:auto; background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft); padding:4px 8px; }
+  .drawer-body{ flex:1; overflow:auto; padding:14px 16px; display:flex; flex-direction:column; gap:12px; }
+  .drawer-new{ width:100%; justify-content:center; }
+  .maps-list{ display:flex; flex-direction:column; gap:4px; }
+  .map-row{
+    display:flex; align-items:center; gap:2px;
+    border-radius:10px; border:1px solid transparent;
+  }
+  .map-row.active{ background:var(--paper); border-color:var(--paper-line); }
+  .map-row-select{
+    flex:1; min-width:0; display:block; text-align:left;
+    padding:10px 12px; border-radius:10px; border:none;
+    background:transparent; color:var(--ink); cursor:pointer; font-size:14px;
+  }
+  .map-row-select:hover{ background:var(--paper); }
+  .map-row.active .map-row-select{ font-weight:600; }
+  .map-row-delete{
+    flex:none; width:34px; height:34px; margin-right:4px;
+    border:none; background:transparent; border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; color:var(--ink-soft);
+  }
+  .map-row-delete:hover{ background:var(--paper); color:var(--danger); }
+  .map-row-delete svg{ width:16px; height:16px; }
+  .map-row-name{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .map-row-empty{ color:var(--ink-soft); font-size:13.5px; padding:8px 4px; }
+  .drawer-foot{ padding:12px 16px; border-top:1px solid var(--paper-line); }
+  .drawer-foot .tbtn{ width:100%; justify-content:center; }
+  @media (max-width: 640px){
+    #maps-drawer{ width:82vw; }
+  }
+
+  /* ---------- Modal ---------- */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(34,48,42,0.45); z-index:100;
+    display:none; align-items:center; justify-content:center; padding:16px;
+  }
+  .modal-backdrop.show{ display:flex; }
+  .modal{
+    background:var(--card); border-radius:16px; width:100%; max-width:560px;
+    max-height:86vh; display:flex; flex-direction:column; overflow:hidden;
+    box-shadow: 0 20px 50px rgba(34,48,42,0.35);
+  }
+  .modal header{
+    background:transparent; border-bottom:1px solid var(--paper-line);
+    padding:16px 18px; display:flex; align-items:center;
+  }
+  .modal h2{ font-family:var(--serif); font-style:italic; font-weight:normal; font-size:19px; margin:0; color:var(--trunk); }
+  .modal .close{ margin-left:auto; background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft); padding:4px 8px; }
+  .modal .body{ padding:16px 18px; overflow:auto; }
+  .modal .foot{ padding:12px 18px; border-top:1px solid var(--paper-line); display:flex; gap:8px; justify-content:flex-end; }
+  .modal p.hint{ color:var(--ink-soft); font-size:13px; margin:0 0 10px; }
+  textarea#mermaid-io{
+    width:100%; min-height:260px; resize:vertical; font-family:var(--mono); font-size:13px;
+    padding:12px; border-radius:10px; border:1px solid var(--paper-line); background:#fff; color:var(--ink);
+    line-height:1.5;
+  }
+  .modal .foot .tbtn{ }
+
+  /* ---------- Empty / responsive ---------- */
+  @media (max-width: 640px){
+    .brand{ font-size:17px; }
+    .tbtn .lbl{ display:none; }
+    .tbtn{ padding:9px; }
+    header{ padding:8px 10px; gap:6px; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{ transition:none !important; }
+  }
+</style>
 </head>
 <body>
-  <div class="sidebar">
-    <h3>Saved Maps <span id="count" class="badge">0</span></h3>
-    <div style="display:flex;gap:8px">
-      <button id="newBtn" class="small">New</button>
-      <button id="migrateBtn" class="small">Migrate legacy</button>
-      <button id="clearAllBtn" class="small">Clear all</button>
+<div id="app">
+  <header>
+    <button class="hamburger-btn" id="btn-menu" title="Your maps" aria-label="Open maps menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <div class="brand">Mind<b>wood</b></div>
+    <div class="toolbar">
+      <button class="tbtn" id="btn-new" title="New map">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        <span class="lbl">New</span>
+      </button>
+      <button class="tbtn" id="btn-import" title="Import Mermaid">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>
+        <span class="lbl">Import</span>
+      </button>
+      <button class="tbtn" id="btn-export" title="Export Mermaid">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3M7 8l5-5 5 5M4 21h16"/></svg>
+        <span class="lbl">Export</span>
+      </button>
+      <button class="tbtn" id="btn-fit" title="Fit to screen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        <span class="lbl">Fit</span>
+      </button>
+      <button class="tbtn" id="btn-relayout" title="Tidy layout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4M3 6h7M3 18h7M14 6h7M14 18h7M14 12h7M11 6v12"/></svg>
+        <span class="lbl">Tidy</span>
+      </button>
     </div>
-    <div class="map-list" id="mapList" aria-live="polite" style="margin-top:12px"></div>
+  </header>
 
-    <hr />
-    <div>
-      <strong>Import / Export</strong>
-      <div style="margin-top:8px">
-        <button id="exportBtn" class="small">Export all (.json)</button>
-        <input id="importFile" type="file" accept="application/json" style="margin-top:8px" />
-      </div>
-    </div>
-    <hr />
-    <div class="muted">Storage keys: <code>mindmer:maps</code>, <code>mindmer:active</code>. Legacy key used for migration: <code>mindmer:map</code>.</div>
-  </div>
-
-  <div class="main">
-    <div style="display:flex;gap:12px; align-items:center">
-      <div style="flex:1">
-        <input id="mapName" placeholder="Map name" />
-        <div id="meta" class="muted" style="margin-top:6px">No map loaded</div>
-      </div>
-      <div>
-        <button id="saveBtn" class="small">Save</button>
-        <button id="saveAsBtn" class="small">Save as New</button>
-        <button id="deleteBtn" class="small">Delete</button>
-      </div>
-    </div>
-
-    <textarea id="editor" placeholder="Map data (JSON or free text). This demo stores whatever you put here."></textarea>
-
-    <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center">
-      <div class="muted">Tip: Use JSON for structured maps. localStorage quota is limited.</div>
-      <div>
-        <button id="importTextBtn" class="small">Import JSON into editor</button>
-      </div>
+  <div id="viewport">
+    <div id="world">
+      <svg id="edges"></svg>
+      <div id="nodes-layer"></div>
     </div>
   </div>
+
+  <div id="node-toolbar">
+    <button data-act="edit" title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+    <button data-act="child" title="Add child"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h9M4 6h5M4 18h5M19 9v10M15 14h8"/></svg></button>
+    <button data-act="sibling" title="Add sibling"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v18M6 8h6M6 16h6M18 5v6M18 15v4"/></svg></button>
+    <button data-act="delete" class="danger" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0 1 13a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2l1-13"/></svg></button>
+  </div>
+
+  <div class="zoom-controls">
+    <button id="zoom-in" title="Zoom in">+</button>
+    <button id="zoom-out" title="Zoom out">−</button>
+    <hr>
+    <button id="zoom-reset" title="Reset zoom" style="font-size:13px;">1:1</button>
+  </div>
+
+  <div id="drawer-backdrop"></div>
+  <div id="maps-drawer">
+    <div class="drawer-head">
+      <h2>Your maps</h2>
+      <button class="drawer-close" id="drawer-close" aria-label="Close menu">&times;</button>
+    </div>
+    <div class="drawer-body">
+      <button class="tbtn primary drawer-new" id="btn-new-map">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        <span class="lbl">New map</span>
+      </button>
+      <div id="maps-list" class="maps-list"></div>
+    </div>
+    <div class="drawer-foot">
+      <button class="tbtn danger" id="btn-clear-all">Clear all maps</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import modal -->
+<div class="modal-backdrop" id="import-backdrop">
+  <div class="modal">
+    <header><h2>Import Mermaid</h2><button class="close" data-close>&times;</button></header>
+    <div class="body">
+      <p class="hint">Paste a Mermaid <code>mindmap</code> diagram below. This replaces your current map.</p>
+      <textarea id="import-text" spellcheck="false" placeholder="mindmap
+  root((Central idea))
+    Branch one
+      Detail
+    Branch two"></textarea>
+    </div>
+    <div class="foot">
+      <button class="tbtn" data-close>Cancel</button>
+      <button class="tbtn primary" id="btn-do-import">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- Export modal -->
+<div class="modal-backdrop" id="export-backdrop">
+  <div class="modal">
+    <header><h2>Export Mermaid</h2><button class="close" data-close>&times;</button></header>
+    <div class="body">
+      <p class="hint">Copy this into any Mermaid-compatible tool, or download it as a file.</p>
+      <textarea id="export-text" spellcheck="false" readonly></textarea>
+    </div>
+    <div class="foot">
+      <button class="tbtn" id="btn-download">Download .mmd</button>
+      <button class="tbtn primary" id="btn-copy">Copy</button>
+    </div>
+  </div>
+</div>
 
 <script>
 (function(){
-  const STORAGE_KEY = 'mindmer:maps';
-  const ACTIVE_KEY = 'mindmer:active';
-  const LEGACY_KEYS = ['mindmer:map', 'mindmap']; // check these for migration
+  "use strict";
 
-  // Utilities
-  function generateId() {
-    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
-    return Date.now().toString(36) + '-' + Math.floor(Math.random()*1e9).toString(36);
+  var OLD_STORAGE_KEY = "mindwood.map.v1";   // legacy single-map storage
+  var STORE_KEY = "mindwood.maps.v1";        // multi-map storage
+  var WC = { x: 4000, y: 4000 }; // world center anchor
+  var X_GAP = 170, LEAF_GAP = 58;
+  var BRANCH_COLORS = ["#2F6F4E","#C98A2C","#7A4FA3","#2E6E8E","#B24C3C"];
+
+  var state = null; // { nodes, rootId, nextIdNum } — the currently open map
+  var view = { panX:0, panY:0, scale:1 };
+  var selectedId = null;
+  var saveTimer = null;
+
+  var store = null;        // { activeId, nextMapIdNum, maps:{ id: {id,name,nodes,rootId,nextIdNum,view,updatedAt} } }
+  var currentMapId = null;
+
+  var viewport = document.getElementById("viewport");
+  var world = document.getElementById("world");
+  var edgesSvg = document.getElementById("edges");
+  var nodesLayer = document.getElementById("nodes-layer");
+  var nodeToolbar = document.getElementById("node-toolbar");
+
+  // ---------------- Data helpers ----------------
+  function defaultState(){
+    var nodes = {};
+    nodes["n0"] = { id:"n0", text:"Central idea", shape:"circle", x:0, y:0, parent:null, children:["n1","n2"] };
+    nodes["n1"] = { id:"n1", text:"First branch", shape:"rounded", x:0, y:0, parent:"n0", children:[] };
+    nodes["n2"] = { id:"n2", text:"Second branch", shape:"rounded", x:0, y:0, parent:"n0", children:[] };
+    return { nodes:nodes, rootId:"n0", nextIdNum:3 };
   }
 
-  function readMaps() {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    try { return raw ? JSON.parse(raw) : {}; } catch (e) { console.warn('Failed to parse maps', e); return {}; }
+  function deriveMapName(nodes, rootId){
+    var root = nodes && nodes[rootId];
+    var text = root && root.text ? String(root.text).trim() : "";
+    return text || "Untitled map";
   }
-  function writeMaps(maps) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(maps));
+
+  function freshStore(){
+    var id = "m0";
+    var def = defaultState();
+    var s = { activeId: id, nextMapIdNum: 1, maps: {} };
+    s.maps[id] = {
+      id: id, name: deriveMapName(def.nodes, def.rootId),
+      nodes: def.nodes, rootId: def.rootId, nextIdNum: def.nextIdNum,
+      view: null, updatedAt: Date.now()
+    };
+    return s;
   }
-  function listMapsArray() {
-    return Object.values(readMaps()).sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0));
+
+  // Reads the multi-map store, migrating the old single-map storage the first time it's found.
+  function loadStore(){
+    try{
+      var raw = localStorage.getItem(STORE_KEY);
+      if(raw){
+        var parsed = JSON.parse(raw);
+        if(parsed && parsed.maps && parsed.activeId && parsed.maps[parsed.activeId]){
+          return parsed;
+        }
+      }
+    }catch(e){ console.warn("Mindwood: could not read saved maps, starting fresh.", e); }
+
+    try{
+      var oldRaw = localStorage.getItem(OLD_STORAGE_KEY);
+      if(oldRaw){
+        var oldParsed = JSON.parse(oldRaw);
+        if(oldParsed && oldParsed.nodes && oldParsed.rootId){
+          var id = "m0";
+          var migrated = { activeId: id, nextMapIdNum: 1, maps: {} };
+          migrated.maps[id] = {
+            id: id,
+            name: deriveMapName(oldParsed.nodes, oldParsed.rootId),
+            nodes: oldParsed.nodes,
+            rootId: oldParsed.rootId,
+            nextIdNum: oldParsed.nextIdNum || (Object.keys(oldParsed.nodes).length+1),
+            view: oldParsed.view || null,
+            updatedAt: Date.now()
+          };
+          localStorage.setItem(STORE_KEY, JSON.stringify(migrated));
+          localStorage.removeItem(OLD_STORAGE_KEY);
+          return migrated;
+        }
+      }
+    }catch(e){ console.warn("Mindwood: could not migrate the previous single map.", e); }
+
+    return freshStore();
   }
-  function setActiveMap(id) {
-    if (!id) localStorage.removeItem(ACTIVE_KEY);
-    else localStorage.setItem(ACTIVE_KEY, id);
+
+  function persistStore(){
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(store)); }
+    catch(e){ console.warn("Mindwood: could not save maps (storage may be full).", e); }
   }
-  function getActiveMapId() { return localStorage.getItem(ACTIVE_KEY); }
-  function saveMap(id, data, name) {
-    const maps = readMaps();
-    if (!maps[id]) throw new Error('Map not found: ' + id);
-    maps[id].data = data;
-    if (name) maps[id].name = name;
-    maps[id].updatedAt = Date.now();
-    writeMaps(maps);
-    setActiveMap(id);
-    return maps[id];
+
+  function flushStateToStore(){
+    if(!store || !currentMapId) return;
+    store.maps[currentMapId] = {
+      id: currentMapId,
+      name: deriveMapName(state.nodes, state.rootId),
+      nodes: state.nodes,
+      rootId: state.rootId,
+      nextIdNum: state.nextIdNum,
+      view: view,
+      updatedAt: Date.now()
+    };
   }
-  function createMap(name = 'Untitled', data = '') {
-    const maps = readMaps();
-    const id = generateId();
-    const now = Date.now();
-    const map = { id, name, data, createdAt: now, updatedAt: now };
-    maps[id] = map;
-    writeMaps(maps);
-    setActiveMap(id);
-    return map;
+
+  function loadState(){
+    store = loadStore();
+    currentMapId = store.activeId;
+    var m = store.maps[currentMapId];
+    if(m.view) view = m.view;
+    return { nodes: m.nodes, rootId: m.rootId, nextIdNum: m.nextIdNum || (Object.keys(m.nodes).length+1) };
   }
-  function loadMap(id) {
-    const maps = readMaps();
-    return maps[id] || null;
+
+  function saveState(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function(){
+      flushStateToStore();
+      persistStore();
+    }, 250);
   }
-  function deleteMap(id) {
-    const maps = readMaps();
-    if (!maps[id]) return false;
-    delete maps[id];
-    writeMaps(maps);
-    if (getActiveMapId() === id) {
-      const remaining = Object.keys(readMaps());
-      setActiveMap(remaining.length ? remaining[0] : null);
+
+  // Loads whichever map is store.activeId into the live `state`/`view` and re-renders.
+  function loadActiveMapIntoView(){
+    var m = store.maps[store.activeId];
+    currentMapId = store.activeId;
+    state = { nodes: m.nodes, rootId: m.rootId, nextIdNum: m.nextIdNum || (Object.keys(m.nodes).length+1) };
+    selectedId = null;
+    view = m.view || { panX:0, panY:0, scale:1 };
+    var needsLayout = Object.keys(state.nodes).every(function(id){
+      var n = state.nodes[id];
+      return n.x === 0 && n.y === 0 && n.id !== state.rootId;
+    });
+    if(needsLayout) layoutTree();
+    fullRender();
+    if(!m.view){ fitView(); } else { applyTransform(); positionNodeToolbar(); }
+  }
+
+  function createNewMap(){
+    flushStateToStore();
+    persistStore();
+    var id = "m" + store.nextMapIdNum;
+    store.nextMapIdNum++;
+    var def = defaultState();
+    store.maps[id] = {
+      id: id, name: deriveMapName(def.nodes, def.rootId),
+      nodes: def.nodes, rootId: def.rootId, nextIdNum: def.nextIdNum,
+      view: null, updatedAt: Date.now()
+    };
+    store.activeId = id;
+    persistStore();
+    loadActiveMapIntoView();
+  }
+
+  function switchToMap(id){
+    if(id === currentMapId) return;
+    flushStateToStore();
+    store.activeId = id;
+    persistStore();
+    loadActiveMapIntoView();
+  }
+
+  function deleteMap(id){
+    var ids = Object.keys(store.maps);
+    if(ids.length <= 1){
+      alert("You need at least one map — clear it instead, or use \u201cClear all maps\u201d.");
+      return;
     }
-    return true;
+    var m = store.maps[id];
+    var name = m ? (m.name || deriveMapName(m.nodes, m.rootId)) : "this map";
+    if(!confirm('Delete "' + name + '"? This can\u2019t be undone.')) return;
+
+    delete store.maps[id];
+
+    if(id === currentMapId){
+      var remaining = Object.keys(store.maps).sort(function(a, b){
+        return (store.maps[b].updatedAt || 0) - (store.maps[a].updatedAt || 0);
+      });
+      store.activeId = remaining[0];
+      persistStore();
+      loadActiveMapIntoView();
+    } else {
+      persistStore();
+    }
+    renderMapsList();
   }
-  function clearAllMaps(confirmed = true) {
-    if (confirmed && !confirm('Clear all saved maps? This cannot be undone.')) return false;
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(ACTIVE_KEY);
+
+  function clearAllMaps(){
+    if(!confirm("Clear all maps? This deletes every saved map on this device and can't be undone.")) return;
+    try{
+      localStorage.removeItem(STORE_KEY);
+      localStorage.removeItem(OLD_STORAGE_KEY);
+    }catch(e){}
+    store = freshStore();
+    persistStore();
+    loadActiveMapIntoView();
+  }
+
+  function newId(){ var id = "n"+state.nextIdNum; state.nextIdNum++; return id; }
+
+  function addChild(parentId, text){
+    var id = newId();
+    state.nodes[id] = { id:id, text: text || "New idea", shape:"rounded", x:0, y:0, parent: parentId, children:[] };
+    state.nodes[parentId].children.push(id);
+    return id;
+  }
+
+  function addSibling(nodeId, text){
+    var node = state.nodes[nodeId];
+    if(!node.parent) return addChild(nodeId, text); // root has no siblings
+    var id = addChild(node.parent, text);
+    var siblings = state.nodes[node.parent].children;
+    siblings.splice(siblings.indexOf(id), 1);
+    siblings.splice(siblings.indexOf(nodeId)+1, 0, id);
+    return id;
+  }
+
+  function collectSubtreeIds(id, out){
+    out = out || [];
+    out.push(id);
+    state.nodes[id].children.forEach(function(cid){ collectSubtreeIds(cid, out); });
+    return out;
+  }
+
+  function deleteNode(id){
+    var node = state.nodes[id];
+    if(!node || !node.parent) return false; // can't delete root
+    var parent = state.nodes[node.parent];
+    parent.children.splice(parent.children.indexOf(id), 1);
+    var toRemove = collectSubtreeIds(id);
+    toRemove.forEach(function(rid){ delete state.nodes[rid]; });
+    if(toRemove.indexOf(selectedId) !== -1) selectNode(null);
     return true;
   }
 
-  // Migration
-  function migrateLegacyMap() {
-    const maps = readMaps();
-    for (const key of LEGACY_KEYS) {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      try {
-        const data = JSON.parse(raw);
-        // If legacy value already looks like a new map (has id + data), skip
-        if (data && data.id && data.data) continue;
-        const id = generateId();
-        const now = Date.now();
-        maps[id] = { id, name: 'Migrated map', data, createdAt: now, updatedAt: now };
-        localStorage.setItem(key + '.backup', raw);
-        localStorage.removeItem(key);
-        writeMaps(maps);
-        setActiveMap(id);
-        return { migrated: true, key, id };
-      } catch (e) {
-        // raw might be a plain string (non-JSON) -> store as string
-        const id = generateId();
-        const now = Date.now();
-        maps[id] = { id, name: 'Migrated map', data: raw, createdAt: now, updatedAt: now };
-        localStorage.setItem(key + '.backup', raw);
-        localStorage.removeItem(key);
-        writeMaps(maps);
-        setActiveMap(id);
-        return { migrated: true, key, id };
+  function depthOf(id){
+    var d = 0, node = state.nodes[id];
+    while(node.parent){ d++; node = state.nodes[node.parent]; }
+    return d;
+  }
+
+  // ---------------- Layout ----------------
+  function layoutTree(){
+    var root = state.nodes[state.rootId];
+    root.x = 0; root.y = 0;
+    var kids = root.children;
+    var rightIds = [], leftIds = [];
+    kids.forEach(function(id, i){ (i % 2 === 0 ? rightIds : leftIds).push(id); });
+    layoutSide(rightIds, 1);
+    layoutSide(leftIds, -1);
+  }
+
+  function layoutSide(ids, sign){
+    if(ids.length === 0) return;
+    var cursor = { y: 0 };
+    ids.forEach(function(id){ layoutSubtree(id, 1, sign, cursor); });
+    var all = [];
+    ids.forEach(function(id){ collectSubtreeIds(id, all); });
+    var ys = all.map(function(id){ return state.nodes[id].y; });
+    var mid = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+    all.forEach(function(id){ state.nodes[id].y -= mid; });
+  }
+
+  function layoutSubtree(id, depth, sign, cursor){
+    var node = state.nodes[id];
+    node.x = sign * depth * X_GAP;
+    if(node.children.length === 0){
+      node.y = cursor.y;
+      cursor.y += LEAF_GAP;
+      return node.y;
+    }
+    var firstY = null, lastY = null;
+    node.children.forEach(function(cid){
+      var y = layoutSubtree(cid, depth+1, sign, cursor);
+      if(firstY === null) firstY = y;
+      lastY = y;
+    });
+    node.y = (firstY + lastY) / 2;
+    return node.y;
+  }
+
+  // ---------------- Rendering ----------------
+  function fullRender(){
+    nodesLayer.innerHTML = "";
+    edgesSvg.innerHTML = "";
+    Object.keys(state.nodes).forEach(function(id){
+      var node = state.nodes[id];
+      if(node.parent){
+        var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("data-child", id);
+        path.setAttribute("stroke", colorForDepthResolved(depthOf(id)));
+        edgesSvg.appendChild(path);
+      }
+    });
+    Object.keys(state.nodes).forEach(function(id){
+      nodesLayer.appendChild(buildNodeEl(id));
+    });
+    Object.keys(state.nodes).forEach(updateEdgesFor);
+    applyTransform();
+    positionNodeToolbar();
+  }
+
+  function colorForDepthResolved(d){
+    if(d === 0) return "#4A3324";
+    return BRANCH_COLORS[(d-1) % BRANCH_COLORS.length];
+  }
+
+  function buildNodeEl(id){
+    var node = state.nodes[id];
+    var d = depthOf(id);
+    var el = document.createElement("div");
+    el.className = "node depth-"+d+" shape-"+node.shape + (id === selectedId ? " selected" : "");
+    el.dataset.id = id;
+    el.textContent = node.text;
+    if(node.shape !== "default" && d !== 0){
+      el.style.background = colorForDepthResolved(d);
+    }
+    if(d === 0){ el.style.background = "#4A3324"; }
+    if(node.shape === "default"){ el.style.color = colorForDepthResolved(d); el.style.borderBottomColor = colorForDepthResolved(d); el.style.background="transparent"; }
+    positionNodeEl(el, node);
+    return el;
+  }
+
+  function positionNodeEl(el, node){
+    el.style.left = (WC.x + node.x) + "px";
+    el.style.top = (WC.y + node.y) + "px";
+  }
+
+  function edgeD(px, py, cx, cy){
+    var midX = px + (cx - px) / 2;
+    return "M "+px+" "+py+" C "+midX+" "+py+", "+midX+" "+cy+", "+cx+" "+cy;
+  }
+
+  function updateEdgesFor(id){
+    var node = state.nodes[id];
+    if(node.parent){
+      var parent = state.nodes[node.parent];
+      var path = edgesSvg.querySelector('path[data-child="'+id+'"]');
+      if(path){
+        path.setAttribute("d", edgeD(WC.x+parent.x, WC.y+parent.y, WC.x+node.x, WC.y+node.y));
       }
     }
-    return { migrated: false };
-  }
-
-  // UI wiring
-  const mapListEl = document.getElementById('mapList');
-  const countEl = document.getElementById('count');
-  const mapNameEl = document.getElementById('mapName');
-  const editorEl = document.getElementById('editor');
-  const metaEl = document.getElementById('meta');
-
-  function renderList() {
-    const maps = listMapsArray();
-    countEl.textContent = maps.length;
-    mapListEl.innerHTML = '';
-    if (!maps.length) {
-      mapListEl.innerHTML = '<div class="muted">No maps saved</div>';
-      updateEditorFromActive();
-      return;
-    }
-    maps.forEach(m => {
-      const div = document.createElement('div');
-      div.className = 'map-item';
-      const left = document.createElement('div');
-      left.style.flex = '1';
-      left.innerHTML = '<strong>' + escapeHtml(m.name) + '</strong><div class="muted" style="font-size:12px">' +
-        new Date(m.updatedAt).toLocaleString() + '</div>';
-      const right = document.createElement('div');
-      const openBtn = document.createElement('button'); openBtn.textContent = 'Open'; openBtn.className='small';
-      const delBtn = document.createElement('button'); delBtn.textContent = 'Delete'; delBtn.className='small';
-      openBtn.onclick = () => { openMap(m.id); };
-      delBtn.onclick = () => {
-        if (!confirm('Delete "'+m.name+'"?')) return;
-        deleteMap(m.id);
-        renderList();
-      };
-      right.appendChild(openBtn); right.appendChild(delBtn);
-      div.appendChild(left); div.appendChild(right);
-      mapListEl.appendChild(div);
+    node.children.forEach(function(cid){
+      var cpath = edgesSvg.querySelector('path[data-child="'+cid+'"]');
+      if(cpath){
+        cpath.setAttribute("d", edgeD(WC.x+node.x, WC.y+node.y, WC.x+state.nodes[cid].x, WC.y+state.nodes[cid].y));
+      }
     });
-    updateEditorFromActive();
   }
 
-  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]); }); }
+  function moveNodeLive(id, dx, dy){
+    var node = state.nodes[id];
+    node.x += dx; node.y += dy;
+    var el = nodesLayer.querySelector('.node[data-id="'+id+'"]');
+    if(el) positionNodeEl(el, node);
+    updateEdgesFor(id);
+    positionNodeToolbar();
+  }
 
-  function updateEditorFromActive() {
-    const id = getActiveMapId();
-    if (!id) {
-      mapNameEl.value = '';
-      editorEl.value = '';
-      metaEl.textContent = 'No map loaded';
+  function applyTransform(){
+    world.style.transform = "translate("+view.panX+"px,"+view.panY+"px) scale("+view.scale+")";
+  }
+
+  // ---------------- Selection & mini toolbar ----------------
+  function selectNode(id){
+    var prev = nodesLayer.querySelector(".node.selected");
+    if(prev) prev.classList.remove("selected");
+    selectedId = id;
+    if(id){
+      var el = nodesLayer.querySelector('.node[data-id="'+id+'"]');
+      if(el) el.classList.add("selected");
+    }
+    positionNodeToolbar();
+  }
+
+  function positionNodeToolbar(){
+    if(!selectedId || !state.nodes[selectedId]){ nodeToolbar.style.display = "none"; return; }
+    var node = state.nodes[selectedId];
+    var vpRect = viewport.getBoundingClientRect();
+    var screenX = vpRect.left + view.panX + (WC.x+node.x) * view.scale;
+    var screenY = vpRect.top + view.panY + (WC.y+node.y) * view.scale;
+    nodeToolbar.style.display = "flex";
+    var tw = nodeToolbar.offsetWidth || 170, th = nodeToolbar.offsetHeight || 46;
+    var left = Math.min(Math.max(screenX - tw/2, 6), window.innerWidth - tw - 6);
+    var top = screenY - th - 46;
+    if(top < 50) top = screenY + 46;
+    nodeToolbar.style.left = left + "px";
+    nodeToolbar.style.top = top + "px";
+  }
+
+  // ---------------- Editing ----------------
+  function beginEdit(id){
+    var el = nodesLayer.querySelector('.node[data-id="'+id+'"]');
+    if(!el) return;
+    el.setAttribute("contenteditable", "true");
+    el.focus();
+    document.execCommand && document.execCommand("selectAll", false, null);
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    var sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+  }
+
+  function commitEdit(el){
+    var id = el.dataset.id;
+    var node = state.nodes[id];
+    if(!node) return;
+    el.removeAttribute("contenteditable");
+    var text = el.textContent.replace(/\s+/g," ").trim() || "Untitled";
+    node.text = text;
+    el.textContent = text;
+    saveState();
+  }
+
+  // ---------------- Pointer interactions ----------------
+  var drag = null; // {type:'node'|'pan', id, startX, startY, lastX, lastY, moved}
+  var pointers = new Map();
+  var pinch = null; // {startDist, startScale, startPanX, startPanY, midX, midY}
+
+  function worldPointFromScreen(sx, sy){
+    return { x: (sx - view.panX) / view.scale, y: (sy - view.panY) / view.scale };
+  }
+
+  viewport.addEventListener("pointerdown", function(e){
+    if(e.target.closest && e.target.closest("#node-toolbar")) return;
+    var nodeEl = e.target.closest(".node");
+    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+
+    if(pointers.size === 2){
+      drag = null;
+      var pts = Array.from(pointers.values());
+      var dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      pinch = {
+        startDist: dist, startScale: view.scale,
+        startPanX: view.panX, startPanY: view.panY,
+        midX: (pts[0].x+pts[1].x)/2, midY: (pts[0].y+pts[1].y)/2
+      };
       return;
     }
-    const m = loadMap(id);
-    if (!m) { mapNameEl.value=''; editorEl.value=''; metaEl.textContent='No map loaded'; return; }
-    mapNameEl.value = m.name || '';
-    // If data is an object, pretty-print JSON
-    try {
-      if (typeof m.data === 'object') editorEl.value = JSON.stringify(m.data, null, 2);
-      else editorEl.value = String(m.data || '');
-    } catch (e) {
-      editorEl.value = String(m.data || '');
-    }
-    metaEl.innerHTML = 'Loaded: <strong>' + escapeHtml(m.name) + '</strong> — updated ' + new Date(m.updatedAt).toLocaleString();
-  }
 
-  function openMap(id) {
-    setActiveMap(id);
-    renderList();
-    // focus editor
-    editorEl.focus();
-  }
+    if(nodeEl && nodeEl.getAttribute("contenteditable") === "true") return; // let text editing work
 
-  // Buttons
-  document.getElementById('newBtn').addEventListener('click', () => {
-    const m = createMap('Untitled', '');
-    renderList();
-    openMap(m.id);
-  });
-  document.getElementById('saveBtn').addEventListener('click', () => {
-    const id = getActiveMapId();
-    if (!id) return alert('No active map to save. Click New or Open a map first.');
-    let data = editorEl.value;
-    // Try parse JSON so structured data stays structured
-    try { data = JSON.parse(data); } catch(e) { /* keep as string */ }
-    try {
-      const name = mapNameEl.value || 'Untitled';
-      saveMap(id, data, name);
-      renderList();
-      alert('Saved.');
-    } catch (e) { alert('Save failed: ' + e.message); }
-  });
-  document.getElementById('saveAsBtn').addEventListener('click', () => {
-    let data = editorEl.value;
-    try { data = JSON.parse(data); } catch(e) { }
-    const name = mapNameEl.value || 'Untitled';
-    const m = createMap(name, data);
-    renderList();
-    openMap(m.id);
-    alert('Saved as new map.');
-  });
-  document.getElementById('deleteBtn').addEventListener('click', () => {
-    const id = getActiveMapId();
-    if (!id) return alert('No active map to delete.');
-    const m = loadMap(id);
-    if (!confirm('Delete active map "' + (m && m.name || id) + '"?')) return;
-    deleteMap(id);
-    renderList();
-  });
-  document.getElementById('clearAllBtn').addEventListener('click', () => {
-    if (!confirm('Clear ALL maps? This will remove everything saved.')) return;
-    clearAllMaps(false);
-    renderList();
-  });
-
-  document.getElementById('migrateBtn').addEventListener('click', () => {
-    const res = migrateLegacyMap();
-    if (res.migrated) {
-      alert('Migrated legacy key ' + res.key + ' into new store (id: ' + res.id + '). Backup saved at ' + (res.key + '.backup'));
-      renderList();
+    if(nodeEl){
+      var id = nodeEl.dataset.id;
+      drag = { type:"node", id:id, startX:e.clientX, startY:e.clientY, moved:false };
+      nodeEl.setPointerCapture(e.pointerId);
+      nodeEl.classList.add("dragging");
     } else {
-      alert('No legacy map found to migrate.');
+      drag = { type:"pan", startX:e.clientX, startY:e.clientY, startPanX:view.panX, startPanY:view.panY, moved:false };
+      viewport.classList.add("panning");
     }
   });
 
-  // Export / Import
-  document.getElementById('exportBtn').addEventListener('click', () => {
-    const maps = readMaps();
-    const blob = new Blob([JSON.stringify({ exportedAt:Date.now(), maps }, null, 2)], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'mindmer-maps-export.json';
-    document.body.appendChild(a); a.click(); a.remove();
+  viewport.addEventListener("pointermove", function(e){
+    if(pointers.has(e.pointerId)) pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+
+    if(pinch && pointers.size === 2){
+      var pts = Array.from(pointers.values());
+      var dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      var factor = dist / pinch.startDist;
+      var newScale = clamp(pinch.startScale * factor, 0.2, 3);
+      var worldPt = { x:(pinch.midX - pinch.startPanX)/pinch.startScale, y:(pinch.midY - pinch.startPanY)/pinch.startScale };
+      view.scale = newScale;
+      view.panX = pinch.midX - worldPt.x * newScale;
+      view.panY = pinch.midY - worldPt.y * newScale;
+      applyTransform();
+      return;
+    }
+
+    if(!drag) return;
+    if(drag.type === "node"){
+      var dxScreen = e.clientX - drag.startX, dyScreen = e.clientY - drag.startY;
+      if(Math.abs(dxScreen) > 3 || Math.abs(dyScreen) > 3) drag.moved = true;
+      var dx = (e.movementX || 0) / view.scale;
+      var dy = (e.movementY || 0) / view.scale;
+      if(dx || dy) moveNodeLive(drag.id, dx, dy);
+    } else if(drag.type === "pan"){
+      var pdx = e.clientX - drag.startX, pdy = e.clientY - drag.startY;
+      if(Math.abs(pdx) > 3 || Math.abs(pdy) > 3) drag.moved = true;
+      view.panX = drag.startPanX + pdx;
+      view.panY = drag.startPanY + pdy;
+      applyTransform();
+      positionNodeToolbar();
+    }
+  });
+
+  function endPointer(e){
+    pointers.delete(e.pointerId);
+    if(pointers.size < 2) pinch = null;
+    if(!drag) return;
+    if(drag.type === "node"){
+      var el = nodesLayer.querySelector('.node[data-id="'+drag.id+'"]');
+      if(el) el.classList.remove("dragging");
+      if(!drag.moved){
+        if(selectedId === drag.id && el && el.getAttribute("contenteditable") !== "true"){
+          beginEdit(drag.id);
+        } else {
+          selectNode(drag.id);
+        }
+      } else {
+        saveState();
+      }
+    } else if(drag.type === "pan"){
+      viewport.classList.remove("panning");
+      if(!drag.moved){
+        selectNode(null);
+      }
+      saveState();
+    }
+    drag = null;
+  }
+  viewport.addEventListener("pointerup", endPointer);
+  viewport.addEventListener("pointercancel", endPointer);
+
+  nodesLayer.addEventListener("blur", function(e){
+    if(e.target.classList && e.target.classList.contains("node") && e.target.getAttribute("contenteditable") === "true"){
+      commitEdit(e.target);
+    }
+  }, true);
+
+  nodesLayer.addEventListener("keydown", function(e){
+    var el = e.target.closest && e.target.closest('.node[contenteditable="true"]');
+    if(!el) return;
+    if(e.key === "Enter"){ e.preventDefault(); el.blur(); }
+    if(e.key === "Escape"){ e.preventDefault(); el.removeAttribute("contenteditable"); fullRender(); }
+  });
+
+  viewport.addEventListener("wheel", function(e){
+    e.preventDefault();
+    var factor = e.deltaY < 0 ? 1.1 : 0.9;
+    zoomAt(e.clientX, e.clientY, factor);
+  }, { passive:false });
+
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+  function zoomAt(screenX, screenY, factor){
+    var worldPt = worldPointFromScreen(screenX, screenY);
+    view.scale = clamp(view.scale * factor, 0.2, 3);
+    view.panX = screenX - worldPt.x * view.scale;
+    view.panY = screenY - worldPt.y * view.scale;
+    applyTransform();
+    positionNodeToolbar();
+    saveState();
+  }
+
+  function zoomCentered(factor){
+    var r = viewport.getBoundingClientRect();
+    zoomAt(r.width/2, r.height/2, factor);
+  }
+
+  function fitView(){
+    var ids = Object.keys(state.nodes);
+    if(ids.length === 0) return;
+    var xs = ids.map(function(id){ return state.nodes[id].x; });
+    var ys = ids.map(function(id){ return state.nodes[id].y; });
+    var minX = Math.min.apply(null, xs) - 90, maxX = Math.max.apply(null, xs) + 90;
+    var minY = Math.min.apply(null, ys) - 60, maxY = Math.max.apply(null, ys) + 60;
+    var r = viewport.getBoundingClientRect();
+    var scaleX = r.width / (maxX-minX || 1);
+    var scaleY = r.height / (maxY-minY || 1);
+    view.scale = clamp(Math.min(scaleX, scaleY), 0.2, 2);
+    var cx = WC.x + (minX+maxX)/2, cy = WC.y + (minY+maxY)/2;
+    view.panX = r.width/2 - cx * view.scale;
+    view.panY = r.height/2 - cy * view.scale;
+    applyTransform();
+    positionNodeToolbar();
+    saveState();
+  }
+
+  // ---------------- Mini toolbar actions ----------------
+  nodeToolbar.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+  nodeToolbar.addEventListener("click", function(e){
+    var btn = e.target.closest("button");
+    if(!btn || !selectedId) return;
+    var act = btn.dataset.act;
+    if(act === "edit"){ beginEdit(selectedId); }
+    else if(act === "child"){
+      var id = addChild(selectedId);
+      layoutTree(); fullRender(); selectNode(id); saveState();
+    } else if(act === "sibling"){
+      var sid = addSibling(selectedId);
+      layoutTree(); fullRender(); selectNode(sid); saveState();
+    } else if(act === "delete"){
+      var node = state.nodes[selectedId];
+      if(!node.parent){ alert("The root idea can't be deleted — try renaming it instead."); return; }
+      var hasKids = node.children.length > 0;
+      if(hasKids && !confirm("Delete this node and everything branching from it?")) return;
+      deleteNode(selectedId);
+      layoutTree(); fullRender(); saveState();
+    }
+  });
+
+  // ---------------- Keyboard shortcuts ----------------
+  document.addEventListener("keydown", function(e){
+    var active = document.activeElement;
+    var isEditing = active && active.classList && active.classList.contains("node") && active.getAttribute("contenteditable") === "true";
+    if(isEditing) return;
+    if(!selectedId) return;
+    if(e.key === "Tab"){
+      e.preventDefault();
+      var id = addChild(selectedId);
+      layoutTree(); fullRender(); selectNode(id); saveState();
+    } else if(e.key === "Enter"){
+      e.preventDefault();
+      var sid = addSibling(selectedId);
+      layoutTree(); fullRender(); selectNode(sid); saveState();
+    } else if(e.key === "F2"){
+      e.preventDefault(); beginEdit(selectedId);
+    } else if(e.key === "Delete" || e.key === "Backspace"){
+      var node = state.nodes[selectedId];
+      if(!node.parent) return;
+      e.preventDefault();
+      var hasKids = node.children.length > 0;
+      if(hasKids && !confirm("Delete this node and everything branching from it?")) return;
+      deleteNode(selectedId);
+      layoutTree(); fullRender(); saveState();
+    }
+  });
+
+  window.addEventListener("resize", positionNodeToolbar);
+
+  // ---------------- Mermaid import / export ----------------
+  var SHAPE_PATTERNS = [
+    { re: /^([\w-]*)\(\((.+)\)\)$/, shape: "circle" },
+    { re: /^([\w-]*)\{\{(.+)\}\}$/, shape: "hexagon" },
+    { re: /^([\w-]*)\)(.+)\($/,     shape: "cloud" },
+    { re: /^([\w-]*)\[(.+)\]$/,     shape: "square" },
+    { re: /^([\w-]*)\((.+)\)$/,     shape: "rounded" }
+  ];
+
+  function parseNodeLabel(raw){
+    var trimmed = raw.trim();
+    for(var i=0;i<SHAPE_PATTERNS.length;i++){
+      var m = trimmed.match(SHAPE_PATTERNS[i].re);
+      if(m) return { text: m[2].trim(), shape: SHAPE_PATTERNS[i].shape };
+    }
+    return { text: trimmed, shape: "default" };
+  }
+
+  function parseMermaidMindmap(src){
+    var rawLines = src.replace(/\t/g, "    ").split(/\r?\n/);
+    var lines = [];
+    rawLines.forEach(function(line){
+      var trimmed = line.trim();
+      if(trimmed === "" || trimmed.indexOf("%%") === 0) return;
+      lines.push(line);
+    });
+    if(lines.length && /^\s*mindmap\b/i.test(lines[0])) lines.shift();
+
+    var nodes = {}, rootId = null, counter = 0;
+    var stack = []; // {indent, id}
+
+    lines.forEach(function(line){
+      var trimmed = line.trim();
+      if(trimmed.indexOf("::") === 0) return; // icon/class directive, skip
+      var indent = line.length - line.replace(/^ +/, "").length;
+      var parsed = parseNodeLabel(trimmed);
+      var id = "n" + (counter++);
+      nodes[id] = { id:id, text: parsed.text || "Untitled", shape: parsed.shape, x:0, y:0, parent:null, children:[] };
+
+      while(stack.length && stack[stack.length-1].indent >= indent) stack.pop();
+
+      if(stack.length === 0){
+        rootId = id;
+      } else {
+        var parent = stack[stack.length-1];
+        nodes[id].parent = parent.id;
+        nodes[parent.id].children.push(id);
+      }
+      stack.push({ indent:indent, id:id });
+    });
+
+    if(!rootId){
+      return defaultState();
+    }
+    if(nodes[rootId].shape === "default") nodes[rootId].shape = "circle";
+    return { nodes: nodes, rootId: rootId, nextIdNum: counter };
+  }
+
+  function wrapShape(text, shape){
+    switch(shape){
+      case "circle": return "((" + text + "))";
+      case "hexagon": return "{{" + text + "}}";
+      case "cloud": return ")" + text + "(";
+      case "square": return "[" + text + "]";
+      case "rounded": return "(" + text + ")";
+      default: return text;
+    }
+  }
+
+  function exportMermaid(){
+    var lines = ["mindmap"];
+    function walk(id, depth){
+      var node = state.nodes[id];
+      var text = (node.text || "Untitled").replace(/\s+/g, " ").trim() || "Untitled";
+      lines.push("  ".repeat(depth+1) + wrapShape(text, node.shape));
+      node.children.forEach(function(cid){ walk(cid, depth+1); });
+    }
+    walk(state.rootId, 0);
+    return lines.join("\n");
+  }
+
+  // ---------------- Modals ----------------
+  function openModal(id){ document.getElementById(id).classList.add("show"); }
+  function closeModal(id){ document.getElementById(id).classList.remove("show"); }
+  document.querySelectorAll("[data-close]").forEach(function(btn){
+    btn.addEventListener("click", function(){ btn.closest(".modal-backdrop").classList.remove("show"); });
+  });
+  document.querySelectorAll(".modal-backdrop").forEach(function(bd){
+    bd.addEventListener("click", function(e){ if(e.target === bd) bd.classList.remove("show"); });
+  });
+
+  document.getElementById("btn-import").addEventListener("click", function(){
+    document.getElementById("import-text").value = "";
+    openModal("import-backdrop");
+  });
+  document.getElementById("btn-do-import").addEventListener("click", function(){
+    var text = document.getElementById("import-text").value;
+    if(!text.trim()) return;
+    state = parseMermaidMindmap(text);
+    selectedId = null;
+    layoutTree();
+    fullRender();
+    fitView();
+    saveState();
+    closeModal("import-backdrop");
+  });
+
+  document.getElementById("btn-export").addEventListener("click", function(){
+    document.getElementById("export-text").value = exportMermaid();
+    openModal("export-backdrop");
+  });
+  document.getElementById("btn-copy").addEventListener("click", function(){
+    var ta = document.getElementById("export-text");
+    ta.select();
+    try{ document.execCommand("copy"); }catch(e){}
+    if(navigator.clipboard) navigator.clipboard.writeText(ta.value).catch(function(){});
+  });
+  document.getElementById("btn-download").addEventListener("click", function(){
+    var blob = new Blob([exportMermaid()], { type:"text/plain" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = "mindwood.mmd";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   });
 
-  document.getElementById('importFile').addEventListener('change', function(e){
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = function(){ try {
-        const obj = JSON.parse(r.result);
-        if (!obj.maps) return alert('Invalid export file: missing maps');
-        const existing = readMaps();
-        const imported = obj.maps;
-        // merge (overwrite by id)
-        const merged = Object.assign({}, existing, imported);
-        writeMaps(merged);
-        alert('Imported ' + Object.keys(imported).length + ' maps. Existing maps preserved/merged.');
-        renderList();
-    } catch(err){ alert('Import failed: ' + err.message); } }
-    r.readAsText(f);
-    e.target.value = '';
-  });
+  // ---------------- Maps drawer ----------------
+  var mapsDrawer = document.getElementById("maps-drawer");
+  var drawerBackdrop = document.getElementById("drawer-backdrop");
+  var mapsList = document.getElementById("maps-list");
 
-  document.getElementById('importTextBtn').addEventListener('click', () => {
-    const t = editorEl.value.trim();
-    if (!t) return alert('Editor is empty.');
-    try {
-      const obj = JSON.parse(t);
-      editorEl.value = JSON.stringify(obj, null, 2);
-      alert('Parsed JSON successfully.');
-    } catch(e){ alert('Not valid JSON: ' + e.message); }
-  });
-
-  // Sync across tabs
-  window.addEventListener('storage', (e) => {
-    if (e.key === STORAGE_KEY || e.key === ACTIVE_KEY) {
-      renderList();
+  function renderMapsList(){
+    mapsList.innerHTML = "";
+    var ids = Object.keys(store.maps).sort(function(a, b){
+      return (store.maps[b].updatedAt || 0) - (store.maps[a].updatedAt || 0);
+    });
+    if(ids.length === 0){
+      var empty = document.createElement("div");
+      empty.className = "map-row-empty";
+      empty.textContent = "No maps yet.";
+      mapsList.appendChild(empty);
+      return;
     }
+    ids.forEach(function(id){
+      var m = store.maps[id];
+      var row = document.createElement("div");
+      row.className = "map-row" + (id === currentMapId ? " active" : "");
+
+      var selectBtn = document.createElement("button");
+      selectBtn.type = "button";
+      selectBtn.className = "map-row-select";
+      var name = document.createElement("span");
+      name.className = "map-row-name";
+      name.textContent = m.name || deriveMapName(m.nodes, m.rootId);
+      selectBtn.appendChild(name);
+      selectBtn.addEventListener("click", function(){
+        switchToMap(id);
+        closeDrawer();
+      });
+
+      var deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "map-row-delete";
+      deleteBtn.title = "Delete this map";
+      deleteBtn.setAttribute("aria-label", "Delete this map");
+      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0 1 13a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2l1-13"/></svg>';
+      deleteBtn.addEventListener("click", function(e){
+        e.stopPropagation();
+        deleteMap(id);
+      });
+
+      row.appendChild(selectBtn);
+      row.appendChild(deleteBtn);
+      mapsList.appendChild(row);
+    });
+  }
+
+  function openDrawer(){
+    renderMapsList();
+    mapsDrawer.classList.add("open");
+    drawerBackdrop.classList.add("show");
+  }
+  function closeDrawer(){
+    mapsDrawer.classList.remove("open");
+    drawerBackdrop.classList.remove("show");
+  }
+
+  document.getElementById("btn-menu").addEventListener("click", openDrawer);
+  document.getElementById("drawer-close").addEventListener("click", closeDrawer);
+  drawerBackdrop.addEventListener("click", closeDrawer);
+
+  document.getElementById("btn-new-map").addEventListener("click", function(){
+    createNewMap();
+    closeDrawer();
   });
 
-  // Init: if no maps exist, but legacy key present, auto-suggest migration (do not auto-migrate without user click).
-  function init() {
-    renderList();
-    // if there's an active id but the map is missing, clear active
-    const active = getActiveMapId();
-    if (active && !loadMap(active)) setActiveMap(null);
-    updateEditorFromActive();
-    // show a small hint if legacy key exists
-    for (const k of LEGACY_KEYS) {
-      if (localStorage.getItem(k)) {
-        const migrateBtn = document.getElementById('migrateBtn');
-        migrateBtn.style.background = '#ffe'; migrateBtn.title = 'Legacy map key found: ' + k;
-        break;
-      }
+  document.getElementById("btn-clear-all").addEventListener("click", function(){
+    clearAllMaps();
+    closeDrawer();
+  });
+
+  document.getElementById("btn-new").addEventListener("click", function(){
+    if(!confirm("Start a new map? This clears the current one.")) return;
+    state = defaultState();
+    selectedId = null;
+    layoutTree();
+    fullRender();
+    fitView();
+    saveState();
+  });
+
+  document.getElementById("btn-fit").addEventListener("click", fitView);
+  document.getElementById("btn-relayout").addEventListener("click", function(){
+    layoutTree(); fullRender(); saveState();
+  });
+  document.getElementById("zoom-in").addEventListener("click", function(){ zoomCentered(1.2); });
+  document.getElementById("zoom-out").addEventListener("click", function(){ zoomCentered(1/1.2); });
+  document.getElementById("zoom-reset").addEventListener("click", function(){
+    view.scale = 1; applyTransform(); positionNodeToolbar(); saveState();
+  });
+
+  // ---------------- Init ----------------
+  function init(){
+    state = loadState();
+    var needsLayout = Object.keys(state.nodes).every(function(id){
+      var n = state.nodes[id];
+      return n.x === 0 && n.y === 0 && n.id !== state.rootId;
+    });
+    if(needsLayout) layoutTree();
+    fullRender();
+    if(!view.scale || (view.panX === 0 && view.panY === 0)){
+      fitView();
+    } else {
+      applyTransform();
     }
   }
 
   init();
-
 })();
 </script>
 </body>
