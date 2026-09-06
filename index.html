@@ -140,6 +140,70 @@
   .zoom-controls button:hover{ background:var(--paper); }
   .zoom-controls hr{ border:none; border-top:1px solid var(--paper-line); margin:2px 4px; }
 
+  /* ---------- Maps menu (hamburger + drawer) ---------- */
+  .hamburger-btn{
+    display:flex; align-items:center; justify-content:center;
+    width:38px; height:38px; flex:none;
+    border:1px solid var(--paper-line); background:var(--card); color:var(--ink);
+    border-radius:10px; cursor:pointer;
+    transition: background .15s, border-color .15s, transform .1s;
+  }
+  .hamburger-btn:hover{ border-color: var(--ink-soft); }
+  .hamburger-btn:active{ transform: scale(0.96); }
+  .hamburger-btn svg{ width:18px; height:18px; }
+
+  #drawer-backdrop{
+    position:fixed; inset:0; background:rgba(34,48,42,0.35); z-index:90;
+    display:none;
+  }
+  #drawer-backdrop.show{ display:block; }
+
+  #maps-drawer{
+    position:fixed; top:0; left:0; bottom:0; width:290px; max-width:86vw;
+    background:var(--card); z-index:95;
+    box-shadow: 8px 0 28px rgba(34,48,42,0.28);
+    transform: translateX(-100%);
+    transition: transform .22s ease;
+    display:flex; flex-direction:column;
+  }
+  #maps-drawer.open{ transform: translateX(0); }
+  .drawer-head{
+    display:flex; align-items:center; padding:16px 16px 12px;
+    border-bottom:1px solid var(--paper-line);
+  }
+  .drawer-head h2{ font-family:var(--serif); font-style:italic; font-weight:normal; font-size:19px; margin:0; color:var(--trunk); }
+  .drawer-close{ margin-left:auto; background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft); padding:4px 8px; }
+  .drawer-body{ flex:1; overflow:auto; padding:14px 16px; display:flex; flex-direction:column; gap:12px; }
+  .drawer-new{ width:100%; justify-content:center; }
+  .maps-list{ display:flex; flex-direction:column; gap:4px; }
+  .map-row{
+    display:flex; align-items:center; gap:2px;
+    border-radius:10px; border:1px solid transparent;
+  }
+  .map-row.active{ background:var(--paper); border-color:var(--paper-line); }
+  .map-row-select{
+    flex:1; min-width:0; display:block; text-align:left;
+    padding:10px 12px; border-radius:10px; border:none;
+    background:transparent; color:var(--ink); cursor:pointer; font-size:14px;
+  }
+  .map-row-select:hover{ background:var(--paper); }
+  .map-row.active .map-row-select{ font-weight:600; }
+  .map-row-delete{
+    flex:none; width:34px; height:34px; margin-right:4px;
+    border:none; background:transparent; border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; color:var(--ink-soft);
+  }
+  .map-row-delete:hover{ background:var(--paper); color:var(--danger); }
+  .map-row-delete svg{ width:16px; height:16px; }
+  .map-row-name{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .map-row-empty{ color:var(--ink-soft); font-size:13.5px; padding:8px 4px; }
+  .drawer-foot{ padding:12px 16px; border-top:1px solid var(--paper-line); }
+  .drawer-foot .tbtn{ width:100%; justify-content:center; }
+  @media (max-width: 640px){
+    #maps-drawer{ width:82vw; }
+  }
+
   /* ---------- Modal ---------- */
   .modal-backdrop{
     position:fixed; inset:0; background:rgba(34,48,42,0.45); z-index:100;
@@ -182,6 +246,9 @@
 <body>
 <div id="app">
   <header>
+    <button class="hamburger-btn" id="btn-menu" title="Your maps" aria-label="Open maps menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
     <div class="brand">Mind<b>wood</b></div>
     <div class="toolbar">
       <button class="tbtn" id="btn-new" title="New map">
@@ -227,6 +294,24 @@
     <hr>
     <button id="zoom-reset" title="Reset zoom" style="font-size:13px;">1:1</button>
   </div>
+
+  <div id="drawer-backdrop"></div>
+  <div id="maps-drawer">
+    <div class="drawer-head">
+      <h2>Your maps</h2>
+      <button class="drawer-close" id="drawer-close" aria-label="Close menu">&times;</button>
+    </div>
+    <div class="drawer-body">
+      <button class="tbtn primary drawer-new" id="btn-new-map">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        <span class="lbl">New map</span>
+      </button>
+      <div id="maps-list" class="maps-list"></div>
+    </div>
+    <div class="drawer-foot">
+      <button class="tbtn danger" id="btn-clear-all">Clear all maps</button>
+    </div>
+  </div>
 </div>
 
 <!-- Import modal -->
@@ -267,15 +352,19 @@
 (function(){
   "use strict";
 
-  var STORAGE_KEY = "mindwood.map.v1";
+  var OLD_STORAGE_KEY = "mindwood.map.v1";   // legacy single-map storage
+  var STORE_KEY = "mindwood.maps.v1";        // multi-map storage
   var WC = { x: 4000, y: 4000 }; // world center anchor
   var X_GAP = 170, LEAF_GAP = 58;
   var BRANCH_COLORS = ["#2F6F4E","#C98A2C","#7A4FA3","#2E6E8E","#B24C3C"];
 
-  var state = null; // { nodes, rootId, nextIdNum }
+  var state = null; // { nodes, rootId, nextIdNum } — the currently open map
   var view = { panX:0, panY:0, scale:1 };
   var selectedId = null;
   var saveTimer = null;
+
+  var store = null;        // { activeId, nextMapIdNum, maps:{ id: {id,name,nodes,rootId,nextIdNum,view,updatedAt} } }
+  var currentMapId = null;
 
   var viewport = document.getElementById("viewport");
   var world = document.getElementById("world");
@@ -292,27 +381,170 @@
     return { nodes:nodes, rootId:"n0", nextIdNum:3 };
   }
 
-  function loadState(){
+  function deriveMapName(nodes, rootId){
+    var root = nodes && nodes[rootId];
+    var text = root && root.text ? String(root.text).trim() : "";
+    return text || "Untitled map";
+  }
+
+  function freshStore(){
+    var id = "m0";
+    var def = defaultState();
+    var s = { activeId: id, nextMapIdNum: 1, maps: {} };
+    s.maps[id] = {
+      id: id, name: deriveMapName(def.nodes, def.rootId),
+      nodes: def.nodes, rootId: def.rootId, nextIdNum: def.nextIdNum,
+      view: null, updatedAt: Date.now()
+    };
+    return s;
+  }
+
+  // Reads the multi-map store, migrating the old single-map storage the first time it's found.
+  function loadStore(){
     try{
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if(!raw) return defaultState();
-      var parsed = JSON.parse(raw);
-      if(!parsed || !parsed.nodes || !parsed.rootId) return defaultState();
-      if(parsed.view) view = parsed.view;
-      return { nodes: parsed.nodes, rootId: parsed.rootId, nextIdNum: parsed.nextIdNum || (Object.keys(parsed.nodes).length+1) };
-    }catch(e){
-      console.warn("Mindwood: could not read saved map, starting fresh.", e);
-      return defaultState();
-    }
+      var raw = localStorage.getItem(STORE_KEY);
+      if(raw){
+        var parsed = JSON.parse(raw);
+        if(parsed && parsed.maps && parsed.activeId && parsed.maps[parsed.activeId]){
+          return parsed;
+        }
+      }
+    }catch(e){ console.warn("Mindwood: could not read saved maps, starting fresh.", e); }
+
+    try{
+      var oldRaw = localStorage.getItem(OLD_STORAGE_KEY);
+      if(oldRaw){
+        var oldParsed = JSON.parse(oldRaw);
+        if(oldParsed && oldParsed.nodes && oldParsed.rootId){
+          var id = "m0";
+          var migrated = { activeId: id, nextMapIdNum: 1, maps: {} };
+          migrated.maps[id] = {
+            id: id,
+            name: deriveMapName(oldParsed.nodes, oldParsed.rootId),
+            nodes: oldParsed.nodes,
+            rootId: oldParsed.rootId,
+            nextIdNum: oldParsed.nextIdNum || (Object.keys(oldParsed.nodes).length+1),
+            view: oldParsed.view || null,
+            updatedAt: Date.now()
+          };
+          localStorage.setItem(STORE_KEY, JSON.stringify(migrated));
+          localStorage.removeItem(OLD_STORAGE_KEY);
+          return migrated;
+        }
+      }
+    }catch(e){ console.warn("Mindwood: could not migrate the previous single map.", e); }
+
+    return freshStore();
+  }
+
+  function persistStore(){
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(store)); }
+    catch(e){ console.warn("Mindwood: could not save maps (storage may be full).", e); }
+  }
+
+  function flushStateToStore(){
+    if(!store || !currentMapId) return;
+    store.maps[currentMapId] = {
+      id: currentMapId,
+      name: deriveMapName(state.nodes, state.rootId),
+      nodes: state.nodes,
+      rootId: state.rootId,
+      nextIdNum: state.nextIdNum,
+      view: view,
+      updatedAt: Date.now()
+    };
+  }
+
+  function loadState(){
+    store = loadStore();
+    currentMapId = store.activeId;
+    var m = store.maps[currentMapId];
+    if(m.view) view = m.view;
+    return { nodes: m.nodes, rootId: m.rootId, nextIdNum: m.nextIdNum || (Object.keys(m.nodes).length+1) };
   }
 
   function saveState(){
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function(){
-      try{
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes: state.nodes, rootId: state.rootId, nextIdNum: state.nextIdNum, view: view }));
-      }catch(e){ console.warn("Mindwood: could not save map (storage may be full).", e); }
+      flushStateToStore();
+      persistStore();
     }, 250);
+  }
+
+  // Loads whichever map is store.activeId into the live `state`/`view` and re-renders.
+  function loadActiveMapIntoView(){
+    var m = store.maps[store.activeId];
+    currentMapId = store.activeId;
+    state = { nodes: m.nodes, rootId: m.rootId, nextIdNum: m.nextIdNum || (Object.keys(m.nodes).length+1) };
+    selectedId = null;
+    view = m.view || { panX:0, panY:0, scale:1 };
+    var needsLayout = Object.keys(state.nodes).every(function(id){
+      var n = state.nodes[id];
+      return n.x === 0 && n.y === 0 && n.id !== state.rootId;
+    });
+    if(needsLayout) layoutTree();
+    fullRender();
+    if(!m.view){ fitView(); } else { applyTransform(); positionNodeToolbar(); }
+  }
+
+  function createNewMap(){
+    flushStateToStore();
+    persistStore();
+    var id = "m" + store.nextMapIdNum;
+    store.nextMapIdNum++;
+    var def = defaultState();
+    store.maps[id] = {
+      id: id, name: deriveMapName(def.nodes, def.rootId),
+      nodes: def.nodes, rootId: def.rootId, nextIdNum: def.nextIdNum,
+      view: null, updatedAt: Date.now()
+    };
+    store.activeId = id;
+    persistStore();
+    loadActiveMapIntoView();
+  }
+
+  function switchToMap(id){
+    if(id === currentMapId) return;
+    flushStateToStore();
+    store.activeId = id;
+    persistStore();
+    loadActiveMapIntoView();
+  }
+
+  function deleteMap(id){
+    var ids = Object.keys(store.maps);
+    if(ids.length <= 1){
+      alert("You need at least one map — clear it instead, or use \u201cClear all maps\u201d.");
+      return;
+    }
+    var m = store.maps[id];
+    var name = m ? (m.name || deriveMapName(m.nodes, m.rootId)) : "this map";
+    if(!confirm('Delete "' + name + '"? This can\u2019t be undone.')) return;
+
+    delete store.maps[id];
+
+    if(id === currentMapId){
+      var remaining = Object.keys(store.maps).sort(function(a, b){
+        return (store.maps[b].updatedAt || 0) - (store.maps[a].updatedAt || 0);
+      });
+      store.activeId = remaining[0];
+      persistStore();
+      loadActiveMapIntoView();
+    } else {
+      persistStore();
+    }
+    renderMapsList();
+  }
+
+  function clearAllMaps(){
+    if(!confirm("Clear all maps? This deletes every saved map on this device and can't be undone.")) return;
+    try{
+      localStorage.removeItem(STORE_KEY);
+      localStorage.removeItem(OLD_STORAGE_KEY);
+    }catch(e){}
+    store = freshStore();
+    persistStore();
+    loadActiveMapIntoView();
   }
 
   function newId(){ var id = "n"+state.nextIdNum; state.nextIdNum++; return id; }
@@ -862,6 +1094,81 @@
     a.href = url; a.download = "mindwood.mmd";
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  });
+
+  // ---------------- Maps drawer ----------------
+  var mapsDrawer = document.getElementById("maps-drawer");
+  var drawerBackdrop = document.getElementById("drawer-backdrop");
+  var mapsList = document.getElementById("maps-list");
+
+  function renderMapsList(){
+    mapsList.innerHTML = "";
+    var ids = Object.keys(store.maps).sort(function(a, b){
+      return (store.maps[b].updatedAt || 0) - (store.maps[a].updatedAt || 0);
+    });
+    if(ids.length === 0){
+      var empty = document.createElement("div");
+      empty.className = "map-row-empty";
+      empty.textContent = "No maps yet.";
+      mapsList.appendChild(empty);
+      return;
+    }
+    ids.forEach(function(id){
+      var m = store.maps[id];
+      var row = document.createElement("div");
+      row.className = "map-row" + (id === currentMapId ? " active" : "");
+
+      var selectBtn = document.createElement("button");
+      selectBtn.type = "button";
+      selectBtn.className = "map-row-select";
+      var name = document.createElement("span");
+      name.className = "map-row-name";
+      name.textContent = m.name || deriveMapName(m.nodes, m.rootId);
+      selectBtn.appendChild(name);
+      selectBtn.addEventListener("click", function(){
+        switchToMap(id);
+        closeDrawer();
+      });
+
+      var deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "map-row-delete";
+      deleteBtn.title = "Delete this map";
+      deleteBtn.setAttribute("aria-label", "Delete this map");
+      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0 1 13a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2l1-13"/></svg>';
+      deleteBtn.addEventListener("click", function(e){
+        e.stopPropagation();
+        deleteMap(id);
+      });
+
+      row.appendChild(selectBtn);
+      row.appendChild(deleteBtn);
+      mapsList.appendChild(row);
+    });
+  }
+
+  function openDrawer(){
+    renderMapsList();
+    mapsDrawer.classList.add("open");
+    drawerBackdrop.classList.add("show");
+  }
+  function closeDrawer(){
+    mapsDrawer.classList.remove("open");
+    drawerBackdrop.classList.remove("show");
+  }
+
+  document.getElementById("btn-menu").addEventListener("click", openDrawer);
+  document.getElementById("drawer-close").addEventListener("click", closeDrawer);
+  drawerBackdrop.addEventListener("click", closeDrawer);
+
+  document.getElementById("btn-new-map").addEventListener("click", function(){
+    createNewMap();
+    closeDrawer();
+  });
+
+  document.getElementById("btn-clear-all").addEventListener("click", function(){
+    clearAllMaps();
+    closeDrawer();
   });
 
   document.getElementById("btn-new").addEventListener("click", function(){
